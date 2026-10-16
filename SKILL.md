@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP: /mcp/tools for the named tool set, /mcp/code for code mode.
 metadata:
   author: fast-io
-  version: 2.93.0
+  version: 2.94.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.93
-**Last Updated:** 2026-10-09
+**Version:** 2.94
+**Last Updated:** 2026-10-16
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and plans, see [references/REFERENCE.md](references/REFERENCE.md).
 
@@ -271,6 +271,8 @@ Always inspect per-item `results[]`. (Whole-batch HTTP-4xx rejections with no `r
 - **Attachments** — `files_attach` (`nodeId:versionId`, max 20 files / 200 MB). **No Deep Indexing required.** **Preflight: only files with `ai.attach: true` can be attached** — check via `storage action=details` (full detail; `ai.attach` is omitted at terse/standard). A folder nodeId in `files_attach` errors (1609 not-found / 400 invalid) — use `folders_attach` (comma-separated folder nodeIds) for folders. `citations` is always empty in this mode.
 
 Sending both scope and attach errors. After `chat-create`/`message-send`, the response is async; `ai action=message-read` does a bounded activity long-poll (~24s worst case: a 12s ceiling × 2 iterations). If still processing, **don't tight-loop** — use `event action=activity-poll` (see Activity polling).
+
+**Reply effort and Continue.** `ask`, `chat-create` and `message-send` take an optional `effort`: `normal` (default) or `high` (deeper reasoning with no per-reply step limit, for large multi-step tasks; slower, and uses more credits per reply). It applies to that one message only — a chat stores no effort, so resend it on each message that should use it; each turn's `query.effort` echoes the level it ran at. A `normal` reply that uses up its per-reply working-step limit finishes early with `turn_limit_reached: true` (the answer may be incomplete) and a `_next` follow-up: `ai_manage action=message-send` with `query_text="Continue"` in the same chat resumes the work — the chat is intact and the new reply gets a fresh step limit.
 
 ### Activity polling — don't tight-loop
 
