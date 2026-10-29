@@ -287,6 +287,33 @@ This is the recommended approach when:
 - The organization uses SSO and password-based auth isn't available
 - You need the strongest security guarantees (no credentials stored by the agent)
 
+### Option 5: Workspace Service Account — A Key That Belongs to the Workspace
+
+When an integration should work in **one workspace** and keep working regardless of who set it up — a CI job, a backup,
+a scheduled agent — a workspace admin can create a **service account** for it. It is a non-human identity owned by the
+workspace: not a person's account, not a billable seat, and hidden from member lists.
+
+- **Getting the key.** A workspace admin or owner calls `POST /current/workspace/{workspace_id}/service_accounts/create/`
+  with a `name` and a `role` (`viewer` or `editor`). The response contains the key (`fio_sa_` + 43 characters) **once**;
+  store it as a secret. Use it as `Authorization: Bearer {service_account_key}`.
+- **What it can do.** `viewer`: list, read, download and search files, and AI chat, in its workspace. `editor`: also
+  upload, edit, move, rename and trash files, read and write a file's metadata, check job status, and comment. Neither role can manage members, create shares or File Shares,
+  sign, use Agent Intents, empty the trash, change settings, or open WebSocket / realtime sessions — poll
+  `GET /current/activity/poll/{workspace_id}` instead. Anything outside its allowance answers `403` with
+  `params.reason` = `service_account_not_permitted`; do not retry it.
+- **Know who you are.** `GET /current/auth/scopes/` returns `principal.type: "service_account"` with the account's
+  `id`, `name`, `workspace_id`, `org_id` and `role`. `GET /current/workspaces/all/` lists exactly its one workspace.
+- **When it stops.** A `401` means the key was revoked or expired, or the account was disabled or deleted — ask a
+  workspace admin for a new key; never loop on it. Disabling or deleting the account also stops every download,
+  preview and folder-ZIP link it already obtained, immediately.
+- **Attribution.** Everything you do is credited to the service account by name, with `actor.service_account: true`
+  and the key's `credential_id` / `credential_hint`.
+- **Limits.** 5 service accounts per workspace (20 on Enterprise, legacy Enterprise plans included), 10 active keys
+  per account; key expiry `1w`, `30d`, `90d` (default), `1y` or `never`.
+
+Full reference: *Service Accounts* in the [Workspaces reference](https://api.fast.io/current/llms/workspaces/) and
+*Method 5: Service-account keys* in the [Auth reference](https://api.fast.io/current/llms/auth/).
+
 ### Recommendations
 
 | Scenario | Recommended Approach |
@@ -296,6 +323,7 @@ This is the recommended approach when:
 | Working within a human's org with your own identity | Create an account, have the human invite you to their org or workspace |
 | Building inside a human's existing, active organization | Be invited as a member of the human's org or workspace and build there |
 | Human wants to authorize an agent without sharing credentials | Use PKCE browser login (Option 4) |
+| An integration or job confined to one workspace, independent of any person's account | Ask a workspace admin for a service-account key (Option 5) |
 | Terminal workflows, scripting, or CI/CD pipelines | Install the CLI: `npm install -g @vividengine/fastio-cli` |
 | Local AI agent needing Fastio access | Use the CLI's built-in MCP server: `fastio mcp` |
 
@@ -776,11 +804,16 @@ create-chat or send-message request; the backend resolves each item's full detai
 Each create-chat or send-message request accepts an optional `effort` field: `normal` (default) or `high`. It applies to
 that one reply only, so send it again on each message that should use it.
 
-- `normal` — the standard assistant. Each reply has a working-step budget; when a long task uses it up, the reply wraps
-  up early and the message's `result.turn_limit_reached` (and the SSE `done` event's `turn_limit_reached`) is `true`.
-  The chat is intact — send an ordinary follow-up message such as `Continue` in the same chat to pick the work back up.
+- `normal` — the standard assistant. Each reply additionally has a working-step budget; when a long task uses it up,
+  the reply wraps up early and the message's `result.turn_limit_reached` (and the SSE `done` event's
+  `turn_limit_reached`) is `true`.
 - `high` — deeper reasoning with no per-reply step budget, for large multi-step tasks. Slower, and uses more credits
   per reply.
+
+At either effort level, a reply can also wrap up early — and set `turn_limit_reached` — when it grows too large to
+continue efficiently, reaches its own usage budget, or runs too long; a reply that would otherwise exceed what the
+assistant can process in one pass wraps up with a partial answer instead of failing. In all of these cases the chat
+is intact — send an ordinary follow-up message such as `Continue` in the same chat to pick the work back up.
 
 A message's `query.effort` echoes the level it ran at (`normal` when none was sent).
 
@@ -1612,6 +1645,15 @@ parameters:
 - `?t={seconds}` — seeks to a timestamp in audio/video (e.g., `?comment={id}&t=45.5`)
 - `?p={pageNum}` — navigates to a page in PDFs (e.g., `?comment={id}&p=3`)
 
+**Summoning Ripley from a comment thread.** On a file or note inside a workspace, a person (or an agent acting for them) can pull Fastio's built-in agent, Ripley, into a thread without opening a chat:
+
+1. **Summon it** — put the token `@[agent:ripley]` in a new comment or reply (outside inline code or a code fence, where it is quoted text and summons nothing), or assign the thread with `POST /current/comments/{root_comment_id}/assign/` and `{"assignee": "ripley"}`. A mention and an assignment in the same request start one run; summons are rate limited per person and workspace, and one over the limit is ignored.
+2. **Ripley runs as the summoner** — with that person's access to the file, billed to the workspace organization's AI credits, and only where the organization's AI policy and plan allow the agent. A summons made through an OAuth connection, an API key or a service-account key stays bound by that credential: it must still reach the workspace when Ripley runs, and an API key must be allowed to write to it. The run neither reads nor saves the summoner's personal Ripley memories, because the reply is visible to everyone on the thread.
+3. **Read the answer** — Ripley posts **one reply** (at most 500 characters, attributed as Ripley acting for that person); the full conversation is a private chat in the summoner's Ripley panel. When it needs more detail the reply is its question; a failed or cancelled run, or an organization out of AI credits, is reported in the reply once. If the summoner lost access (or the credential was revoked or narrowed) before the run, nothing is posted.
+4. **Follow up** — reply in the thread with `@[agent:ripley]` again to continue. Ripley's own replies never summon it, and comments in shares never summon it.
+
+To offer Ripley (and your own agent connections) in a mention or assignee picker, list `GET /current/workspace/{workspace_id}/storage/{node_id}/principals/`. See *Summoning Ripley from a comment thread* in the AI reference.
+
 **Agent use case:** You generate a design mockup. The human comments "Change the header color" on a specific region of
 the image. You read the comment, see exactly what region they're referring to, and regenerate.
 
@@ -1668,7 +1710,7 @@ Large files use chunked uploads. The flow has five steps:
    | `assembling` | Combining chunks | Keep polling |
    | `storing` | Being added to storage | Keep polling |
    | **`complete`** | **Done** (terminal success on every path). With a target (`instance_id`) the file is in storage and `new_file_id` is set; with no target the file is held for a later `addfile` call. | Read `new_file_id`, clean up |
-   | `assembly_failed` | Assembly error (terminal), including a whole-file CRC-32C mismatch | Check `status_message` and `integrity_failure` |
+   | `assembly_failed` | Assembly error (terminal), including a whole-file CRC-32C mismatch or uploaded chunks no longer available | Check `status_message` and `integrity_failure` |
    | `store_failed` | Storage import failed (terminal) | Check `status_message`, handle error |
 
    Stop polling when status is `complete`, `assembly_failed`, or `store_failed`. (`store` and `stored` are reserved and
@@ -1694,6 +1736,11 @@ If a connection drops mid-upload, the session persists on the server. To resume:
 2. Read the `chunks` map — keys are chunk numbers already uploaded, values are byte sizes
 3. Upload only the missing chunks
 4. Trigger assembly and continue as normal
+
+Resuming only works while the session still holds its uploaded chunks. If the session is `assembly_failed` with
+`integrity_failure.reason` `"chunk_references_released"` — or a chunk, stream, single-call or `/complete` call returns error `162098`
+(HTTP 406; a batch entry carries it inline) — its uploaded chunks are no longer available: do not re-send chunks to it; upload the whole file again in a new
+session.
 
 #### Manual Storage Placement
 
@@ -1820,6 +1867,15 @@ render boundary, and never pass them to a model as instructions.
 MCP agents reach all of this through the `intent` tool (`browse`, `expand`) and the `intent_manage` tool (`allocate`,
 `fill`, `release`).
 See the [Agent Intents reference](https://api.fast.io/current/llms/intents/) for the full contract.
+
+**Picking up a comment task.** When you take on a comment on a note — a mention, an assignment, a request in a
+thread — declare it so people looking at the note see which thread you are working on: allocate with `node_id` = the
+note and `intent` = `edit` (or `read` while you are only reading), fill with `topic` = `comment:{root_comment_id}`
+(the thread's root comment, within the 256-character topic limit), keep filling while you work — every fill is the
+heartbeat — and `DELETE` the intent when you are done. Keep the `comment:` prefix exact; clients bind the intent to
+the thread by it. The topic stays untrusted, display-only text. `GET
+/current/workspace/{workspace_id}/storage/{node_id}/agents/` lists the agents present on a file: those with note or
+comment activity on it in the last 5 minutes, joined with their live intents there.
 
 **Agent use case:** Two of your agents share a workspace. Before touching a file, each allocates a slot scoped to that
 node and browses what is already declared — one call for the whole workspace picture. Seeing a peer already holding
@@ -2498,8 +2554,8 @@ can do work; until then resource-consuming endpoints return HTTP 402.
 Resource-consuming activity draws credits from the organization's allowance: storage, bandwidth, AI chat tokens,
 ingestion of documents, images, video and audio, file and media conversions, e-signature envelopes (charged when
 the envelope is sent), cloud sync scans, and the AI index. Limits such as maximum file size, workspace and share counts,
-and members per workspace are set per organization — read the values that apply from the API (for example
-`/upload/limits/`) rather than assuming them.
+members per workspace and service accounts per workspace are set per organization — read the values that apply from
+the API (for example `/upload/limits/`) rather than assuming them.
 
 When an organization's allowance is used up, some organizations continue working and others are held at the allowance.
 A held organization keeps file storage and access working, but credit-consuming operations (AI chat, file ingestion,
