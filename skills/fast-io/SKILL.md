@@ -14,14 +14,14 @@ compatibility: >-
   via Streamable HTTP: /mcp/tools for the named tool set, /mcp/code for code mode.
 metadata:
   author: fast-io
-  version: 2.95.0
+  version: 2.96.0
 homepage: "https://fast.io"
 ---
 
 # Fastio MCP Server -- AI Agent Guide
 
-**Version:** 2.95
-**Last Updated:** 2026-10-27
+**Version:** 2.96
+**Last Updated:** 2026-11-06
 
 > **Platform reference.** For a comprehensive overview of Fastio's capabilities, key concepts, and plans, see [references/REFERENCE.md](references/REFERENCE.md).
 

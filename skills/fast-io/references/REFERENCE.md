@@ -3337,7 +3337,8 @@ are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`)
 | Signer surface | signer session token carried in the URL path — no session required |
 
 Workspace membership covers the read endpoints, `/send`, document downloads (original and signed PDFs) and the
-audit-certificate download; workspace **admin** is required only for `/void` and `/retry`. Signing availability
+audit-certificate download. `/void` requires a workspace **admin** or the envelope's creator (`is_sender`) while they
+are still a workspace member; `/retry` requires a workspace **admin**. Signing availability
 depends on the features enabled for your organization.
 
 ### Pattern Cookbook
