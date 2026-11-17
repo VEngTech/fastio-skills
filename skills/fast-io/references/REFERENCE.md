@@ -110,7 +110,6 @@ simple question: "What does this document say?"
 | Understanding document contents              | Built-in AI reads, summarizes, and answers questions about your documents and code (agentic chat and Deep Indexing must be available for the organization) |
 | Building a RAG pipeline from scratch         | Enable Deep Indexing on a workspace and documents are automatically indexed, summarized, and queryable |
 | Finding the right file in a large collection | Semantic search finds documents by meaning, not just filename                                     |
-| Getting documents signed                     | Native e-signature: assemble an envelope, send with OTP identity checks, and the executed PDF + audit certificate file back into the workspace |
 | Turning unstructured files into data         | AI metadata extraction pulls typed fields from documents, images, and spreadsheets into a sortable table |
 | Files walking out when someone leaves        | Files belong to the org/workspace (the project), not the uploader — access follows the work, not the person |
 | Knowing what needs attention                 | A per-workspace dashboard ranks @mentions and file activity |
@@ -298,7 +297,7 @@ workspace: not a person's account, not a billable seat, and hidden from member l
   store it as a secret. Use it as `Authorization: Bearer {service_account_key}`.
 - **What it can do.** `viewer`: list, read, download and search files, and AI chat, in its workspace. `editor`: also
   upload, edit, move, rename and trash files, read and write a file's metadata, check job status, and comment. Neither role can manage members, create shares or File Shares,
-  sign, use Agent Intents, empty the trash, change settings, or open WebSocket / realtime sessions — poll
+  use Agent Intents, empty the trash, change settings, or open WebSocket / realtime sessions — poll
   `GET /current/activity/poll/{workspace_id}` instead. Anything outside its allowance answers `403` with
   `params.reason` = `service_account_not_permitted`; do not retry it.
 - **Know who you are.** `GET /current/auth/scopes/` returns `principal.type: "service_account"` with the account's
@@ -394,7 +393,7 @@ owner/admins (who are exempt from enforcement on their own accounts) to issue yo
 When using PKCE browser login, you can request scoped access tokens that limit what the agent can do. Scopes follow
 an inheritance model — broader scopes automatically include access to their children.
 
-**Scope types** (the values the `scope` parameter accepts — the currently-offered set, matching the server's `scopes_supported` metadata):
+**Scope types** (the values the `scope` parameter accepts — the currently-offered set):
 
 | Scope Type           | Description                                                                |
 |----------------------|----------------------------------------------------------------------------|
@@ -404,20 +403,21 @@ an inheritance model — broader scopes automatically include access to their ch
 | `all_orgs`           | Wildcard access to all organizations the user owns or is a member of       |
 | `all_workspaces`     | Wildcard access to all workspaces across accessible organizations          |
 | `all_shares`         | Wildcard access to all shares across accessible organizations and workspaces |
-| `all_sign_envelopes` | Wildcard access to all sign envelopes the user can reach                   |
 
 **Inheritance:** `all_orgs` includes `all_workspaces`, which includes `all_shares`. Requesting `all_orgs` grants full
-access to all orgs, workspaces, and shares the user has access to. (`all_sign_envelopes` is a separate wildcard, not
-part of that org→workspace→share chain.)
+access to all orgs, workspaces, and shares the user has access to.
 
-> **Retired scope — `all_workflows`:** no longer offered. The Workflows feature has been removed, so `all_workflows` is
+> **Retired scopes — `all_workflows` and `all_sign_envelopes`:** no longer offered. The Workflows feature has been removed, so `all_workflows` is
 > deliberately **absent** from the server's `scopes_supported` metadata and must not be requested. The authorization
 > server keeps it only as a fail-closed tombstone, so a pre-existing token that still carries it resolves to nothing
-> rather than erroring. (This is why the offered set is the seven above, not eight.)
+> rather than erroring.
+>
+> `all_sign_envelopes` is likewise retired: E-Signature is no longer offered, so the scope must not be requested,
+> though the value still appears in `scopes_supported` for compatibility.
 
 Pass the desired type as the `scope` parameter when initiating the PKCE authorization flow (`GET /current/oauth/authorize/`). If
 omitted, the grant is the `user` type — the whole account — at the consented access mode (read and write unless
-`access_mode=rwa` was requested; see below). A `scope` naming none of the seven types is refused with a `406`
+`access_mode=rwa` was requested; see below). A `scope` naming no recognized type is refused with a `406`
 (`invalid_scope`), except one made only of the OpenID Connect words `openid`, `profile`, `email` or `offline_access`,
 which is treated as omitted.
 
@@ -702,7 +702,7 @@ every exchange pattern:
 - **Activity notifications** — get notified when files are sent or received
 - **Comment controls** — configure who can see and post comments (owners, guests, or both)
 - **Change settings later** — `POST /current/share/{share_id}/update/` accepts the create-time settings (`invite`,
-  `notify`, `display_type`, `guest_chat_enabled`, `intelligence`, `custom_url`, `external_invites`, branding colors and
+  `notify`, `display_type`, `guest_chat_enabled`, `intelligence`, `external_invites`, branding colors and
   links), so there is no need to recreate a share to change them (MCP: `share_manage` action `update`)
 
 #### Two Storage Modes
@@ -1008,12 +1008,6 @@ This opens the workspace with the specified chat visible in the AI panel.
 - Images (all common formats) — *RAG indexing coming soon*
 - Video (all common formats) — *RAG indexing coming soon*
 - Audio (all common formats) — *RAG indexing coming soon*
-
-#### AI Share — Export to External AI Tools
-
-Generate temporary download URLs for your files, formatted as markdown, for pasting into external AI assistants like
-ChatGPT or Claude. Up to 25 files, 50MB per file, 100MB total. Links expire after 5 minutes. This is separate from the
-built-in AI chat — use it when you want to analyze files with a different model or tool.
 
 **Agent use case:** A user asks "What were Q3 margins?" You have 50 financial documents in a workspace with Deep Indexing enabled.
 Instead of downloading and parsing all 50, create a chat scoped to the finance folder and ask. The AI
@@ -1618,7 +1612,7 @@ Humans can leave feedback directly on files, anchored to specific content:
 - **Threaded replies** — single-level threads under each comment (replies to replies are auto-flattened)
 - **Emoji reactions** — one reaction per user per comment, new replaces previous
 - **Mentions** — tag users with `@[user:USER_ID:Display Name]` syntax in the comment body
-- **Attachments** — attach up to 25 objects (a file or folder, a sign envelope, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints (`GET` / `POST /current/comments/{comment_id}/attachments/` to list / attach, `POST .../attachments/detach/` to detach; MCP: `comment` action `attachment-list`, `comment_manage` actions `attachment-add` / `attachment-detach`). Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
+- **Attachments** — attach up to 25 objects (a file or folder, a share, a File Share, or a workspace) to a comment as references, inline at create time or via the comment attachment endpoints (`GET` / `POST /current/comments/{comment_id}/attachments/` to list / attach, `POST .../attachments/detach/` to detach; MCP: `comment` action `attachment-list`, `comment_manage` actions `attachment-add` / `attachment-detach`). Attachment display names are access-gated on read, so render defensively — when an attachment reports `available: false`, never show a name
 - **File Share comments** — recipients of a File Share comment on its file through `GET` / `POST /current/comments/fileshare/{fileshare_id}/{node_id}/` (MCP: the `comment` / `comment_manage` tools with `profile_type=fileshare`); see *File Share* above for how they surface to the owning workspace
 
 **A mention inside code is quoted, not a hail — behaviour change.** A mention that sits inside markdown code is treated as text the author is SHOWING, not as a hail: it does **not** notify the named user, and it counts in FULL against the display-text cap instead of being discounted as mention markup. Two consequences worth planning for: someone who is notified today by a mention inside a fence stops being notified, and a long body that hid markup inside fences may now be rejected by the cap that previously discounted it. Only two constructs count as code, both matched per line — a fenced block opened by a run of three or more backticks (or three or more tildes) indented at most three spaces and closed by a run of the same character at least as long, alone on its line (an unclosed fence runs to the end of the body); and a single-line inline backtick span, a run of N backticks closed by a run of exactly N on the SAME line. Everything else is NOT recognised as code and still notifies exactly as before: a fence carrying a blockquote or other container prefix, a fence indented four or more spaces, an indented code block with no fence markers, and a backtick span whose opening and closing runs sit on different lines. The bias is deliberate — failing to recognise code is the behaviour that was already live, while inventing code where there is none would silently drop a real person's notification. When in doubt, it is not code.
@@ -2025,7 +2019,7 @@ Use the `event` parameter to filter by exact event name. Here are the most usefu
 
 **AI:**
 `ai_chat_created`, `ai_chat_new_message`, `ai_chat_updated`, `ai_chat_deleted`, `ai_chat_published` (chat publish is currently disabled platform-wide -- `capabilities.can_publish_agent_chat` is `false`),
-`node_ai_summary_created`, `workspace_ai_share_created`
+`node_ai_summary_created`, `workspace_ai_share_created` (retired: no longer emitted; older entries still appear)
 
 **Metadata:**
 `metadata_kv_update`, `metadata_kv_delete`, `metadata_kv_extract`
@@ -2552,8 +2546,7 @@ can do work; until then resource-consuming endpoints return HTTP 402.
 ### What Consumes Credits
 
 Resource-consuming activity draws credits from the organization's allowance: storage, bandwidth, AI chat tokens,
-ingestion of documents, images, video and audio, file and media conversions, e-signature envelopes (charged when
-the envelope is sent), cloud sync scans, and the AI index. Limits such as maximum file size, workspace and share counts,
+ingestion of documents, images, video and audio, file and media conversions, cloud sync scans, and the AI index. Limits such as maximum file size, workspace and share counts,
 members per workspace and service accounts per workspace are set per organization — read the values that apply from
 the API (for example `/upload/limits/`) rather than assuming them.
 
@@ -2573,7 +2566,8 @@ Both carry `error.params` as an object with a `reason` — branch on `params.rea
 `Array.isArray(params)` before reading it). 1688 carries `subscription_required`. A 1696 carries `credits_exhausted`,
 or `trial_conversion_pending` / `upgrade_pending` / `trial_conversion_lapsed` (with `plan`) when the organization's
 billing is waiting on a payment confirmation — identify that case by the `reason` value, not by `params` being present.
-A 1696 with no `reason` (the e-signature send refusal) means the send was refused by the credit check; it is never a hold. This 402
+A 1696 with `account_hold` (no `plan`) means the organization is on an account hold that only Fastio support can lift: paying or
+upgrading does not lift it, so do not offer either — tell the user to contact support. This 402
 reaches any member or agent and never carries invoice or payment data; the
 [Orgs reference](https://api.fast.io/current/llms/orgs/) documents the admin-side billing shapes.
 
@@ -2880,7 +2874,7 @@ and `/mcp/code` and the error names the `_manage` tool; the earlier URLs still r
 | `org` / `org_manage` | Organizations | `list`, `details`, `limits`, `members`, `discover-all` | `create`, `update`, `create-workspace`, `invite-member` |
 | `workspace` / `workspace_manage` | Workspaces (workspaces are created with `org_manage` action `create-workspace`) | `list`, `details`, `check-name`, `read-note`, `jobs-status` | `update`, `archive`, `create-note`, `update-note`, `delete` |
 | `metadata` / `metadata_manage` | Workspace field vocabulary and value search | `fields-list`, `search`, `compound-search`, `eligible` | `fields-merge` (destructive and irreversible). 🔴 The **template and saved-view** actions are the ones that are gone — every `template-*`, `view-*`/`views-list`, `nodes-*`, `auto-match`, `preview-match`, `suggest-fields` and `extract-all`. A stale client may still list them; calling one returns either `9992` (deleted, no longer routes) or `410 Gone` (retired in place; see section 13 for the per-path `error.code`). Per-file metadata values live on the `storage` / `storage_manage` tools. |
-| `share` / `share_manage` | Shares | `list`, `details`, `members`, `check-name` | `create`, `update`, `delete`, `quickshare-create` |
+| `share` / `share_manage` | Shares | `list`, `details`, `members` | `create`, `update`, `delete`, `quickshare-create` |
 | `storage` / `storage_manage` | Files, folders, locks, previews, search (keyword + semantic when Deep Indexing is enabled; accepts `files_scope`/`folders_scope` for scoped semantic search) | `list`, `details`, `search`, `lock-status`, `preview-url` (returns constructed `preview_url`), `preview-transform` (returns constructed `transform_url`), `content` (the file's extracted text as ordered chunks; `q` ranks that one file's chunks) | `create-folder`, `move`, `rename`, `delete`, `lock-acquire`, `lock-release` |
 | `upload` / `upload_manage` | File uploads | `blob-info`, `status`, `limits` | `stream-upload`, `create-session`, `chunk`, `finalize`, `batch`, `web-import` |
 | `download` | Downloads (read-only) | `file-url`, `zip-url`, `quickshare-details` | — |
@@ -3281,183 +3275,22 @@ It's optional — routing works with just the `custom_name` — but improves lin
 
 ---
 
-## Signing / E-Signature
-
-The platform ships a native e-signature surface so an agent can collect legally enforceable signatures on PDFs without
-leaving the workspace. A SignEnvelope is an audit-archive Profile holding up to 20 PDFs sent to one or more recipients;
-the internal PAdES-LT engine produces a long-term-validation cryptographic signature on every completed document and
-the envelope's audit certificate captures the full chain of evidence (consent acceptance, OTP authentication where
-required, per-recipient sign events, document hashes).
-
-> **Full reference:** [https://api.fast.io/current/llms/signing/](https://api.fast.io/current/llms/signing/)
-> **Public HTML docs:** [https://api.fast.io/current/docs/signing/](https://api.fast.io/current/docs/signing/)
-
-### What an Agent Gets From Signing
-
-| Capability | What It Solves |
-|------------|----------------|
-| **Native PDF signing** | No external e-sign account required for the default path. The platform's internal PAdES-LT engine embeds a long-term-validation signature directly in the completed PDF; the signature is verifiable offline by any standard PDF reader. |
-| **Audit certificate** | Every completed envelope ships with a downloadable audit certificate (JSON evidence record) capturing the per-recipient consent, OTP flow, sign timestamps, and document hashes. The chain underneath it is hash-linked and HMAC-signed. |
-| **Recipient OTP** | Configure `auth_method=email_otp` or `sms_otp` on a recipient and the signer surface gates the `/sign` action behind a 6-digit OTP. Code issuance and verification are independently throttled per `(envelope, recipient)` so the brute-force surface stays bounded. |
-| **Sequential or parallel routing** | Recipients carry a 1-based `routing_order`. Distinct numbers fire sequentially; identical numbers fire in parallel. The platform activates the first slot on `/send/` and progresses through the slots as each recipient signs. |
-| **Sign templates** | Capture a reusable signing configuration (recipient slots, document slots, field placements, policy) as a `SignTemplate` (`sa…` OpaqueId). Instantiate the template to produce a draft envelope with concrete bindings applied. |
-| **First-view billing** | Credits are reserved at `/send/` and the first-view charge fires the first time any recipient opens the `/view` landing. Subsequent views by the same or different recipients don't re-charge — the meter is once-per-envelope. Voiding doesn't refund. |
-
-### When to Reach for Signing
-
-- An agent has produced a document that needs a human signature before it can ship.
-- A contract / SOW / NDA / consent form needs to be collected and archived with a verifiable audit trail.
-- A multi-party agreement needs sequential or parallel signing with per-recipient OTP gating.
-
-If none of the above apply, an agent can still ship a PDF as a regular file via storage or a share — but the audit
-chain and OTP gate only exist on the SignEnvelope surface.
-
-### Concept Map (for AI agents)
-
-| Concept | Type | Description |
-|---------|------|-------------|
-| **SignEnvelope** | profile (19-digit id) | The audit-archive entity. Parented to a Workspace. Carries lifecycle state (`draft` / `sent` / `in_progress` / `completed` / `declined` / `voided` / `expired` / `failed`), policy, and timestamps. |
-| **SignTemplate** | OpaqueId (`sa…` prefix, 30-char) | A reusable signing configuration capturing recipient slots, document slots, field placements, and policy. Instantiate to produce a draft envelope. Soft-deleted (tombstoned), never purged. |
-| **Document** | OpaqueId | One PDF inside the envelope. Up to 20 per envelope. Carries `source_node_id` / `source_version_id` (the storage node it was copied from), `signed_pdf_node_id` (set when signing completes), `source_sha256`, `completed_sha256`, `display_order`, `signed_at`. |
-| **Recipient** | OpaqueId | One signer / cc / viewer / approver / certified-recipient on the envelope. Carries `role`, `routing_order`, `auth_method` (`none` / `email_otp` / `sms_otp`), and per-recipient lifecycle timestamps. Status flows `pending` → `sent` → `viewed` → `authenticated` → `signing_in_progress` → `signed` (with `declined` / `expired` / `voided` / `failed` terminal). |
-| **Field** | OpaqueId | A field placement on a `(document_id, page)`. Normalized `0..1` coordinates. Common types are `signature` / `initial` / `date` / `text` / `checkbox`; the full accepted set (including `radio`, `dropdown`, `attachment`, `full_name`, `email`, `approve`, …) is in the Signing reference. Belongs to exactly one recipient. |
-| **Signer token** | compact JWT | Short-lived path-token JWT bound to a `(envelope_id, recipient_id)`. The recipient's signing link is `/sign_envelopes/signer/{token}/view/`. The token is consumed (single-use) on the state-changing actions (`/sign`, `/decline`, OTP-verify). |
-| **Audit certificate** | OpaqueId (node) | The per-envelope audit certificate (JSON evidence record), generated when the envelope reaches any terminal state (completed, declined, voided, expired, or failed). `audit_certificate_node_id` on the envelope resource goes non-null when the certificate is in place; both the owner `/audit/download/` and signer `/sign_envelopes/signer/{token}/audit/download/` endpoints stream the JSON bytes directly (no read-token round-trip). |
-| **Activity events** | event type | `sign_envelope_drafted`, `sign_envelope_sent`, `sign_envelope_voided`, `sign_envelope_viewed`, `sign_envelope_recipient_signed`, `sign_envelope_recipient_declined`, `sign_envelope_document_signed`, `sign_envelope_completed`, `sign_envelope_expired`, `sign_envelope_failed`. Visible through `/events/search/`; envelope transitions also nudge the workspace activity stream with a `sign_envelopes:{envelope_id}` key. |
-
-**ID format note:** Envelope id is **19-digit numeric** (profile id format). Document / recipient / field / node ids
-are **OpaqueIds** in hyphenated form (e.g. `2ltsu-q4mja-cuv7p-gc5yd-lxnsj-wee4`). Sign template ids are 30-character
-`sa`-prefixed OpaqueIds. Signer tokens are compact JWTs and must never be persisted longer than the envelope's lifetime.
-
-### Auth Model
-
-| Endpoint family | Auth |
-|------------------|------|
-| Sender / admin (workspace-parented) | `Authorization: Bearer {api_key}` (JWT / OAuth / API key) |
-| Signer surface | signer session token carried in the URL path — no session required |
-
-Workspace membership covers the read endpoints, `/send`, document downloads (original and signed PDFs) and the
-audit-certificate download. `/void` requires a workspace **admin** or the envelope's creator (`is_sender`) while they
-are still a workspace member; `/retry` requires a workspace **admin**. Signing availability
-depends on the features enabled for your organization.
-
-### Pattern Cookbook
-
-Every signing flow an agent typically runs reduces to one of these recipes. All examples assume an API key in
-`{api_key}` and a workspace id in `{workspace_id}`.
-
-#### Pattern 1: Send a one-recipient envelope, wait for completion
-
-```bash
-# 1. Create the draft envelope.
-curl -X POST "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/create/" \
-  -H "Authorization: Bearer {api_key}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "expires_at": "2026-06-15 14:30:00 UTC",
-    "policy_json": {"auth_method": "email_otp"},
-    "documents": [
-      {"source_node_id": "{source_node_id}", "source_version_id": "{source_version_id}", "display_order": 0}
-    ],
-    "recipients": [
-      {"email": "signer@example.com", "display_name": "Alex Signer", "role": "signer", "routing_order": 1, "auth_method": "email_otp"}
-    ],
-    "fields": [
-      {"recipient_email": "signer@example.com", "document_index": 0, "page": 1, "x_norm": 0.5, "y_norm": 0.8, "w_norm": 0.2, "h_norm": 0.05, "type": "signature", "required": true}
-    ]
-  }'
-# -> 200 OK { "sign_envelope": { "id": "{envelope_id}", "envelope_status": "draft", ... } }
-
-# 2. Send the envelope. The platform reserves credits, transitions Draft -> Sent, and dispatches notification.
-curl -X POST "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/send/" \
-  -H "Authorization: Bearer {api_key}"
-# -> 200 OK { "sign_envelope": { "envelope_status": "sent", "sent_at": "...", ... } }
-
-# 3. Poll the envelope until terminal. Drive on `envelope_status`; when it goes to `completed`, the audit certificate
-#    is rendered shortly after and `audit_certificate_node_id` goes non-null.
-curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/details/" \
-  -H "Authorization: Bearer {api_key}"
-
-# 4. (After completion) Download the signed PDF and the audit certificate.
-curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/documents/{document_id}/signed/download/" \
-  -H "Authorization: Bearer {api_key}"
-curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/audit/download/" \
-  -H "Authorization: Bearer {api_key}"
-```
-
-#### Pattern 2: Catch a void or decline, react accordingly
-
-```bash
-# Watch for the relevant events — poll the events feed for `sign_envelope_voided`,
-# `sign_envelope_recipient_declined` or `sign_envelope_completed`, or long-poll the workspace activity stream and react
-# to a `sign_envelopes:{envelope_id}` key:
-curl -X GET "https://api.fast.io/current/events/search/?workspace_id={workspace_id}&event=sign_envelope_voided" \
-  -H "Authorization: Bearer {api_key}"
-#
-# When the event lands, look up the envelope's current state via:
-curl -X GET "https://api.fast.io/current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/details/" \
-  -H "Authorization: Bearer {api_key}"
-# -> sign_envelope.envelope_status is one of `voided` / `declined` / `completed` / `expired` / `failed`.
-# -> sign_envelope.voided_reason carries the operator's void reason; sign_envelope.recipients[].decline_reason carries the signer's reason.
-```
-
-### What to Tell the Recipient
-
-The signer surface is path-token authenticated. The notification email the platform sends contains a link of the
-form `/sign_envelopes/signer/{token}/view/`. The recipient's flow is:
-
-1. **Click the link** → renders the envelope state, documents, fields, and consent disclosure via `GET /sign_envelopes/signer/{token}/view/`.
-2. **Authenticate (OTP recipients only)** → enter the 6-digit code that the platform sent. The verify response carries a new elevated token; the client uses it for the rest of the flow.
-3. **Review and accept consent**, **fill in field values**, **click sign** → `POST /sign_envelopes/signer/{token}/sign/` submits the values; the platform queues the async PAdES-LT signing job and returns a polling token.
-4. **Wait for completion** → the client polls `/status/` and respects the adaptive `next_poll_seconds` (2s for the first 10s after signing, 5s until 60s, 15s thereafter, and `0` — stop polling — once the envelope is terminal or every document is signed).
-5. **Or decline** → `POST /sign_envelopes/signer/{token}/decline/` with an optional reason cascades the envelope to `declined`.
-
-Path tokens are **single-use** on the consume-style actions (`/sign`, `/decline`, OTP verify). The landing token works
-multiple times on `/view` and `/status` until it has been consumed by one of the one-shot actions.
-
-### Gotchas
-
-- **Signing availability varies by organization.** If signing is refused, tell the user signing is not available for this organization.
-- **Voiding doesn't refund.** Credits are consumed at `/send/`; the void path captures a reason and short-circuits
-  pending recipients but does not refund. This matches industry convention.
-- **A single decline kills the envelope.** Pending recipients in later routing slots never get notified once the
-  envelope cascades to `declined`. Plan around this for sequential multi-signer flows.
-- **The signed PDF endpoint 404s until the document completes.** Drive on the document's `signed_document_available`
-  flag on the envelope resource — when it is `true`, the signed PDF is downloadable.
-- **The audit certificate 404s until the envelope reaches a terminal state** (completed, declined, voided, expired, or
-  failed). Drive on `audit_certificate_node_id` on the envelope resource — it goes non-null when the certificate is ready.
-- **OTP issuance and verification are throttled per-(envelope, recipient).** Back off on a throttle response
-  instead of retrying immediately; the verify throttle protects against brute-force across multiple issuances.
-- **Path tokens are short-lived.** Don't store the signer token longer than the envelope's lifetime. The OTP-elevation
-  path re-mints the token; outside that, treat it as single-use on consume actions.
-- **Documents per envelope is capped at 20.** Exceeding it is rejected at create time with `1605 (Invalid Input)`.
-- **PATCH only works on draft envelopes.** A Sent / InProgress / terminal envelope is immutable on the sender surface;
-  the only transitions are through `/void` and the signer-surface actions.
-
-### See Also
-
-- Full LLM reference: [https://api.fast.io/current/llms/signing/](https://api.fast.io/current/llms/signing/)
-- Public HTML docs: [https://api.fast.io/current/docs/signing/](https://api.fast.io/current/docs/signing/)
-
----
-
 ## Per-Workspace Dashboard
 
-The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — pending signatures, @mentions, and file activity — in a single endpoint call. When AI features are available for the workspace, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
+The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for each workspace member — @mentions and file activity — in a single endpoint call. When AI features are available for the workspace, an AI overlay adds urgency scores (0–100), AI-generated summaries, and suggested actions to each card, and may append cross-item synthesis cards at the end of the feed.
 
 **Key characteristics:**
 
 - **Per-workspace, per-member.** A member sees only the cards relevant to them in that workspace.
 - **AI overlay is additive and gracefully degrades.** Cards are always useful without AI; when AI is available, `urgency`, `ai_summary`, and `suggested_action` enrich each card. Synthesis cards (type `synthesis`, source `ai`) only appear when AI is available.
 - **Ripley Agent seed.** Every card carries a `ripley_seed` — a pre-populated question plus typed entity subjects — for launching a focused Ripley Agent conversation about that card.
-- **Dismiss/snooze is out-of-band.** Dismissing or snoozing a card hides it from the member's view only; the underlying signature is unaffected.
+- **Dismiss/snooze is out-of-band.** Dismissing or snoozing a card hides it from the member's view only; the underlying item is unaffected.
 - **Blocking cards surface first.** Cards that gate other participants are ranked ahead of non-blocking ones.
 
 ### Card types
 
 | Type | What it represents |
 |------|--------------------|
-| `signature` | A pending signature on an envelope |
 | `mention` | An @-mention of the caller in a comment |
 | `file_version` | A new version of a workspace file |
 | `file_added` | A new file added to the workspace |
@@ -3470,15 +3303,11 @@ The Dashboard API surfaces a ranked, paginated feed of **actionable cards** for 
 GET /current/workspace/{workspace_id}/dashboard/?limit=50
 Authorization: Bearer {jwt_token}
 
-# 2. Render each card. For signature cards, use primary_action.endpoint to get the signing link:
-POST /current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/my_sign_link/
-# → Returns: sign_url (when actionable), is_terminal, blocked_signers, etc.
-
-# 3. Offer dismiss/snooze on dismissible cards. URL-encode card_key (contains ':').
+# 2. Offer dismiss/snooze on dismissible cards. URL-encode card_key (contains ':').
 POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 # Optional body: {"snooze_until": "2026-06-18 09:00:00 UTC"}
 
-# 4. Pass ripley_seed to the Ripley Agent to pre-focus the conversation
+# 3. Pass ripley_seed to the Ripley Agent to pre-focus the conversation
 # ripley_seed = {"question": "...", "subjects": [{type, id, display_text}]}
 ```
 
@@ -3488,7 +3317,7 @@ POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 |-------|------|-------------|
 | `card_key` | string | Stable card ID. URL-encode when in a path (contains `:`). |
 | `type` | string | Card type (see table above). |
-| `source` | string | `event`, `signature`, or `ai`. |
+| `source` | string | `event` or `ai`. |
 | `blocking` | boolean | True = blocks other participants; ranked first. |
 | `due_at` | string or null | UTC due date (`"YYYY-MM-DD HH:MM:SS UTC"`). |
 | `ai_summary` | string or null | AI-generated summary. `null` when AI overlay absent. |
@@ -3502,7 +3331,6 @@ POST /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/
 
 - `GET /current/workspace/{workspace_id}/dashboard/` — JWT, workspace View-or-above.
 - `POST/DELETE /current/workspace/{workspace_id}/dashboard/cards/{card_key}/dismiss/` — JWT, workspace View-or-above.
-- `POST /current/workspace/{workspace_id}/sign_envelopes/{envelope_id}/my_sign_link/` — JWT, **write-scope token** (minting a signing link is a state-changing operation).
 
 > **Full reference:** [https://api.fast.io/current/llms/dashboard/](https://api.fast.io/current/llms/dashboard/)
 > **Public HTML docs:** [https://api.fast.io/current/docs/dashboard/](https://api.fast.io/current/docs/dashboard/)

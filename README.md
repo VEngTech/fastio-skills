@@ -31,7 +31,7 @@ The URL fixes the tool set for the session. A client without an `Authorization` 
 
 The server exposes one of two tool sets, chosen by the URL (see Connecting):
 
-- **Named mode (35 tools; 39 where e-signature and cloud import are enabled)** — action-routed tools covering the full REST surface. Each area has a read tool (`storage`) and a `_manage` tool for its create, update and delete actions (`storage_manage`).
+- **Named mode (35 tools; 37 where cloud import is enabled)** — action-routed tools covering the full REST surface. Each area has a read tool (`storage`) and a `_manage` tool for its create, update and delete actions (`storage_manage`).
 - **Code mode (8 tools)** — a lightweight set (`auth`, `auth_manage`, `upload`, `upload_manage`, `search`, `execute`, `execute_manage`, `how-to`) for headless coding agents (e.g. Claude Code, Cursor, Codex). `search` discovers content or API endpoints; `execute` makes structured authenticated GET calls and `execute_manage` the writes.
 
 ## Tools (Named mode)
